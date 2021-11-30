@@ -1,0 +1,383 @@
+---
+title: "Covid Data Analysis"
+author: "Data Science Stuedent"
+date: "11/28/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R markdown document for COVID data analysis. This document includes the analysis of how the COVID19 has varied from first quarter of 2020 to the last quarter of 2021. This analysis is mostly focused on US and India.
+
+The data is loaded from John Hopkins Github page. John Hopkins updates this data everyday. So one can run the real time analysis with the help of this document. 
+
+Following steps are performed in this analysis:
+
+## Load the Covid data from John Hopkins Github URL
+
+```{r get_daata, message = FALSE}
+
+library(tidyverse)
+
+global_cases_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_global.csv"
+US_cases_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_confirmed_US.csv"
+global_deaths_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_global.csv"
+US_deaths_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_covid19_deaths_US.csv"
+
+```
+
+## Read the data from csv files: 
+
+4 CSV files are loaded from the website.
+  a. Global cases
+  b. Global deaths
+  c. US cases
+  d. US deaths
+
+```{r import_data, message = FALSE}
+
+library(readr)
+global_cases <- read_csv(global_cases_url)
+global_deaths <- read_csv(global_deaths_url)
+US_cases <- read_csv(US_cases_url)
+US_deaths <- read_csv(US_deaths_url)
+```
+## Remove the extra columns from global data and change the date format:
+
+1.Remove the columns such as Lat, Long that are not needed for the analysis.
+2. Change the dates to rows from columns.
+3. Join global cases with global deaths.
+
+```{r remove_columns, message = FALSE}
+
+global_cases <- global_cases %>%
+  pivot_longer(cols = -c(`Province/State`,
+                         `Country/Region`,
+                         Lat,Long),
+               names_to = "date",
+               values_to = "cases") %>%
+  select(-c(Lat,Long))
+
+global_deaths <- global_deaths %>%
+  pivot_longer(cols = -c(`Province/State`,
+                         `Country/Region`,
+                         Lat,Long),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(-c(Lat,Long))
+
+#joining global data
+
+library(lubridate)
+
+global <- global_cases %>%
+  full_join(global_deaths) %>%
+  rename(Country_Region = `Country/Region`,
+         Province_State = `Province/State`) %>%
+  mutate(date = mdy(date))
+
+summary(global)
+global <- global %>% filter(cases >0)
+```
+
+## Remove the extra columns from US data and group the data
+
+1.Remove the columns that are not needed for the analysis.
+2. Change the dates to rows from columns.
+3. Join US cases with US deaths.
+
+```{r clean_us_data, message = FALSE}
+
+
+US_cases <- US_cases %>%
+  pivot_longer(cols = -c(UID:Combined_Key),
+               names_to = "date",
+               values_to = "cases") %>%
+  select (Admin2:cases) %>%
+  mutate (date = mdy(date)) %>%
+  select (-c(Lat,Long_))
+
+US_deaths <- US_deaths %>%
+  pivot_longer(cols = -(UID:Population),
+               names_to = "date",
+               values_to = "deaths") %>%
+  select(Admin2:deaths) %>%
+  mutate(date = mdy(date)) %>%
+  select (-c(Lat,Long_))
+
+US <- US_cases %>%
+  full_join(US_deaths)
+```
+
+## Add population to global data:
+
+```{r global_data_add_population, message = FALSE, warning=FALSE}
+
+global <- global %>%
+  unite("Combined_Key",
+        c(Province_State, Country_Region),
+        sep = ", ",
+        na.rm = TRUE,
+        remove = FALSE)
+
+uid_lookup_url <- "https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/UID_ISO_FIPS_LookUp_Table.csv"
+uid <- read_csv(uid_lookup_url) %>%
+  select (-c(Lat, Long_, Combined_Key, code3,
+             iso2, iso3, Admin2))
+
+global <- global %>%
+  left_join(uid, by = c("Province_State", "Country_Region")) %>%
+  select(-c(UID,FIPS)) %>%
+  select(Province_State, Country_Region,
+         date, cases, deaths, Population,
+         Combined_Key)
+```
+
+## Visualize the data
+
+Visualize the US data to add deaths per million and cases per million.
+
+```{r analyze_data, message = FALSE, warning=FALSE}
+
+US_by_state <- US %>%
+  group_by(Province_State, Country_Region, date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths *1000000 / Population) %>%
+  select(Province_State, Country_Region, date,
+         cases, deaths, deaths_per_mill, Population
+         ) %>%
+  ungroup()
+
+US_totals <- US_by_state %>%
+  group_by(Country_Region,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), Population = sum(Population)) %>%
+  mutate(deaths_per_mill = deaths*1000000 / Population) %>%
+  select(Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+tail(US_totals)
+```
+
+## Visualize Covid19 Cases in USA
+
+```{r us_visualize, message = FALSE, warning=FALSE}
+
+US_totals %>%
+  filter(cases >0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in US", y = NULL)
+```
+
+## Visualize COVID19 cases in India
+
+```{r vis_india, message = FALSE, warning=FALSE}
+
+India_cases <- global %>%
+  filter(Country_Region == "India")
+
+India_totals <- India_cases %>%
+  group_by(Country_Region,date) %>%
+  summarize(cases = sum(cases), deaths = sum(deaths), Population = Population) %>%
+  mutate(deaths_per_mill = deaths*1000000/ Population) %>%
+  select(Country_Region, date,
+         cases, deaths, deaths_per_mill, Population) %>%
+  ungroup()
+
+India_totals %>%
+  filter(cases >0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in India", y = NULL)
+```
+
+## Visualize Covid19 Cases in New York, USA
+
+
+```{r ny_visualize, message = FALSE, warning=FALSE}
+state <- "New York"
+US_by_state %>%
+  filter(Province_State == state) %>%
+  filter(cases >0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in New York", y = NULL)
+```
+
+## Visualize Covid19 Cases in Maryland, USA
+
+```{r md_visualize, message = FALSE, warning=FALSE}
+state <- "Maryland"
+US_by_state %>%
+  filter(Province_State == state) %>%
+  filter(cases >0) %>%
+  ggplot(aes(x = date, y = cases)) +
+  geom_line(aes(color="cases"))+
+  geom_point(aes(color="cases")) +
+  geom_line(aes(y = deaths, color = "deaths")) +
+  geom_point(aes(y = deaths, color = "deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 in Maryland", y = NULL)
+
+```
+
+## Visualize Covid19 New Cases in USA
+
+```{r us_new_visual, message = FALSE, warning=FALSE}
+
+US_totals <- US_totals %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+
+US_totals %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 New Cases and Deaths in US", y = NULL)
+```
+
+## Visualize new cases in Maryland, USA
+
+Bias - I live in Maryland, and I had a bias on the basis of the local news that the COVID cases are not growing in Maryland. But this data shows that the numbers are increasing here as well. Although, the growth is less as compared to other states, but we can see an upward trend in the number of cases.
+
+```{r md_new_visual, message = FALSE, warning=FALSE}
+
+US_by_state <- US_by_state %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+
+state <- "Maryland"
+US_by_state %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 New Cases and Deaths in Maryland", y = NULL)
+```
+
+## Visualize new cases in New York, USA
+
+```{r ny_new_visual, message = FALSE, warning=FALSE}
+state <- "New York"
+US_by_state %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 New Cases and Deaths in New York", y = NULL)
+
+US_state_totals <- US_by_state %>%
+  group_by(Province_State) %>%
+  summarize(deaths = max(deaths),
+            cases = max(cases),
+            population = max(Population),
+            cases_per_thou = 1000*cases / population,
+            deaths_per_thou = 1000*deaths/ population) %>%
+  filter(cases >0, population >0)
+```
+
+## Visualize new cases in India
+
+Bias - My family lives in India and I believe that more transparency is needed in the media coverage of COVID19. We can see that there is an upward trend in the number of cases during the first quarter of 2021. But the real numbers were not presented by media. This data provides more insight.
+I also believe that the actual number of cases were even higher than the official numbers.
+
+```{r india_new_vis, message = FALSE, warning=FALSE}
+
+India_totals  <- India_totals  %>%
+  mutate(new_cases = cases - lag(cases),
+         new_deaths = deaths - lag(deaths))
+
+India_totals  %>%
+  ggplot(aes(x = date, y = new_cases)) +
+  geom_line(aes(color="new_cases"))+
+  geom_point(aes(color="new_cases")) +
+  geom_line(aes(y = new_deaths, color = "new_deaths")) +
+  geom_point(aes(y = new_deaths, color = "new_deaths")) +
+  scale_y_log10() +
+  theme(legend.position = "bottom",
+        axis.text.x = element_text(angle = 90)) +
+  labs(title = "COVID19 New Cases and Deaths in India", y = NULL)
+```
+
+US States that have minimum number of deaths per 1000.
+
+```{r best_states, message = FALSE, warning=FALSE}
+US_state_totals %>%
+  slice_min(deaths_per_thou, n=10) %>%
+  select(deaths_per_thou, cases_per_thou, everything())
+```
+
+US States that have maximum number of deaths per 1000.
+
+```{r worst_states, message = FALSE, warning=FALSE}
+US_state_totals %>%
+  slice_max(deaths_per_thou, n=10) %>%
+  select(deaths_per_thou, cases_per_thou, everything())  
+
+```
+
+
+## Modeling the data 
+
+Deaths per thousand as a function of cases per thousand. We can see below that deaths are strongly related to the number of cases. There are a few outliers that need further analysis. It's possible that there are some other factors such as average age of the population, environmental factors, and the overall health of the population that also has a major role in the number of deaths.
+
+```{r modeling_data, message = FALSE}
+
+mod <- lm(deaths_per_thou ~ cases_per_thou , data = US_state_totals)
+
+US_tot_w_pred <- US_state_totals %>% mutate(pred = predict(mod))
+
+US_tot_w_pred %>% ggplot() +
+  geom_point(aes(x = cases_per_thou, y = deaths_per_thou), color = "blue") +
+  geom_point(aes(x = cases_per_thou, y = pred),
+             color = "red")
+summary(mod)
+
+```
+
+Conclusion - I believe this data provides good insight on situation of COVID19 in the world. I focused on the data from India and the USA.
+
+We can see that new COVID cases peeked during January and February 2021 in USA, fell during Summer 2021, and are growing again. In India, the COVID cases peeked during end of first quarter and beginning of second quarter of 2021. Vaccination started during the first quarter of 2021 and that helped in the decline in the numbers. The data suggests that warm weather also leads to the decline in the number.
+
+This data can be further analyzed to find out why the number of deaths are more in the certain parts of the world even though the number of cases are same.
+
