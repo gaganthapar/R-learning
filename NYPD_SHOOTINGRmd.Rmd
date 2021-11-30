@@ -1,0 +1,159 @@
+---
+title: "NYPD Shooting Incidents Analysis"
+author: "Data Scince Student"
+date: "11/03/2021"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R markdown document for NYPD Shooting Incidents. This document is prepared as an assignment for the course - "Data Science as field" from University of Colorado Boulder.
+
+## Load the NYPD Shooting data from the URL
+
+```{r get_daata}
+
+url_in <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+```
+
+#Read the data from csv:
+
+
+```{r import_data, message = FALSE}
+
+library(readr)
+nypd_cases <- read_csv(url_in)
+
+```
+
+## Remove the extra columns and change the date format:
+
+
+```{r remove_columns, message = FALSE}
+
+library(tidyverse)
+library(lubridate)
+nypd_cases <- nypd_cases %>%
+  select(-c(X_COORD_CD,Y_COORD_CD,Latitude,Longitude,Lon_Lat,JURISDICTION_CODE)) %>%
+  mutate(event_date = mdy(`OCCUR_DATE`))
+
+```
+## Analyze the data by the age_group of perpetrator:
+
+
+```{r age_group, message = FALSE}
+nypd_age_group_events <- nypd_cases %>%
+  filter(PERP_AGE_GROUP != "UNKNOWN" & PERP_AGE_GROUP != "")
+
+nypd_group_by_age <- nypd_age_group_events %>%
+  group_by(PERP_AGE_GROUP) %>%
+  summarise(count_incidents = n()) %>%
+  ungroup()
+
+nypd_group_by_age <- nypd_group_by_age %>%
+  filter(count_incidents > 1)
+
+library(ggplot2)
+
+group_by_age_frame <- data.frame(nypd_group_by_age)
+
+group_by_age_plot<-ggplot(data=group_by_age_frame, aes(x=PERP_AGE_GROUP, y=count_incidents)) +
+  geom_bar(stat="identity", fill="steelblue")+
+  geom_text(aes(label=count_incidents), vjust=-0.3, size=3.5)+
+  theme_minimal()+
+  labs(title = "NYPD SHOOTINGS BY AGE GROUP") +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+group_by_age_plot
+```
+
+## Analyze the data by race of perpetrator:
+
+
+```{r race, message = FALSE}
+
+nypd_race_events <- nypd_cases %>%
+  filter(PERP_RACE != "UNKNOWN" & PERP_RACE != "")
+
+nypd_group_by_race <- nypd_race_events %>%
+  group_by(PERP_RACE) %>%
+  summarise(count_incidents = n()) %>%
+  ungroup()
+
+nypd_group_by_race <- nypd_group_by_race %>%
+  filter(count_incidents > 2)
+
+group_by_race_frame <- data.frame(nypd_group_by_race)
+
+group_by_race_plot<-ggplot(data=group_by_race_frame, aes(x=PERP_RACE, y=count_incidents)) +
+  geom_bar(stat="identity", fill="darksalmon")+
+  geom_text(aes(label=count_incidents), vjust=-0.3, size=3.5)+
+  theme_minimal()+
+  labs(title = "NYPD SHOOTINGS BY RACE") +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+group_by_race_plot
+
+```
+
+## Analyze the data by sex of perpetrator:
+
+
+```{r sex, message = FALSE}
+
+nypd_sex_events <- nypd_cases %>%
+  filter(PERP_SEX != "U" & PERP_SEX != "")
+
+nypd_group_by_sex <- nypd_sex_events %>%
+  group_by(PERP_SEX) %>%
+  summarise(count_incidents = n()) %>%
+  ungroup()
+
+
+nypd_group_by_sex_frame <- data.frame(nypd_group_by_sex)
+
+group_by_sex_plot<-ggplot(data=nypd_group_by_sex_frame, aes(x=PERP_SEX, y=count_incidents)) +
+  geom_bar(stat="identity", fill="darkviolet")+
+  geom_text(aes(label=count_incidents), vjust=-0.3, size=3.5)+
+  theme_minimal()+
+  labs(title = "NYPD SHOOTINGS BY SEX") +
+  theme(
+    plot.title = element_text(hjust = 0.5)
+  )
+
+group_by_sex_plot
+
+```
+
+## Model - Statistical murder flag as a function of BORO 
+
+```{r MURDER_FLAG_BORO}
+
+mod_boro <- lm(STATISTICAL_MURDER_FLAG ~ BORO, data = nypd_cases)
+summary(mod_boro)
+```
+
+## Model - Statistical murder flag as a function of PERP_AGE_GROUP
+```{r MURDER_FLAG_PERP_AGE}
+
+mod_age <- lm(STATISTICAL_MURDER_FLAG ~ PERP_AGE_GROUP, data = nypd_age_group_events)
+summary(mod_age)
+```
+
+We can see from the data that there are lots of values with UNKNOWN and empty values for age groups, race, and sex. I analysed only those values that have valid values. 
+
+The data indicates that the incidents were committed by particular age group, race, and sex. I believe crimes can be controlled by providing necessary livelihood conditions to everyone so that the community is at comparable economic and social level.  
+
+Before looking at the data, I had a personal bias that the shooting crimes were committed by the age group 25-44 but the data proved that the maximum number of incidents were committed by age 18-24.
